@@ -1,0 +1,4 @@
+.Singers {
+    display: flex;
+    flex-direction: row;
+}
