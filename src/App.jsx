@@ -1,10 +1,10 @@
 import React from 'react';
-import Singer from './Singers';
+import Main from './Main';
 
 class App extends React.Component {
     render() {
         return (
-            <Singer />
+            <Main />
         );
     }
 };
