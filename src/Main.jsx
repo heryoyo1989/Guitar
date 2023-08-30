@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Button } from "@mui/material";
+import { Button, ListItemButton, ListItemText, TextField } from "@mui/material";
 import { createTheme, ThemeProvider } from '@mui/material/styles';
+import FavoriteIcon from '@mui/icons-material/Favorite';
+import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import './Main.css';
 
 const theme = createTheme({
@@ -16,28 +18,42 @@ const theme = createTheme({
   });
 
 const ChordsChart = () => {
-    const [names, setNames] = useState([]);
-    const [selectedSinger, setSelectedSinger] = useState(-1);
-    const [singer, setSinger] = useState('');
-    const [selectedSong, setSelectedSong] = useState(-1);
+    const [folderNames, setFolderNames] = useState([]);
+    const [selectedFolder, setSelectedFolder] = useState(-1);
+
     const [songs, setSongs] = useState([]);
+    const [selectedSong, setSelectedSong] = useState(-1);
+    
+    const [currentSinger, setCurrentSinger] = useState('');
+    const [currentVideoId, setCurrentVideoId] = useState('');
     const [imageSources, SetImageSources] = useState([]);
-    const imageListRef = useRef();
     const [videoLink, setVideoLink] = useState('');
+
+    const imageListRef = useRef();
+    const timerRef = useRef(null);
+
+    const [showFavs, setShowFavs] = useState(false);
 
     useEffect(() => {
         fetch('/singers')
             .then(res => res.json())
             .then(data => {
-                setNames(data.singers);
+                setFolderNames(data.singers);
             })
     })
-    
 
+    const handleGetFavs = async () => {
+        const data = await fetch('favourites').then(res => res.json());
+        setShowFavs(true);
+        setSelectedFolder(-1);
+        setSelectedSong(-1);
+        setSongs(data.favourites);
+    }
+    
     const handleGetSongs = async (name, index) => {
-        setSinger(name);
-        if(index !== selectedSinger) {
-            setSelectedSinger(index);
+        if(index !== selectedFolder) {
+            setSelectedFolder(index);
+            setShowFavs(false);
             setSelectedSong(-1);
         }
         const data = await fetch(`/songs/${name}`).then(res => res.json());
@@ -45,32 +61,36 @@ const ChordsChart = () => {
         setSongs(data.songs);
     }
 
-    const handleGetImage = async (song, index) => {
+    const handleGetImage = async (song, folder, index) => {
         setSelectedSong(index); 
         if(timerRef.current) {
             clearInterval(timerRef.current);
             timerRef.current = null;
         }
         imageListRef.current.scrollTo(0, 0);
-        const data = await fetch(`/songs/${singer}/${song}`).then(res => res.json());
+
+        console.log("Folder is ", folder);
+        const data = await fetch(`/songs/${folder}/${song}`).then(res => res.json());
         SetImageSources(data.imageSources);
 
-        const videoData = await fetch(`/youtube/${singer.indexOf('.') >= 0 ? 'null' : singer}/${song}`).then(res => res.json());
+        const videoData = await fetch(`/youtube/${folder}/${song}`).then(res => res.json());
         console.log('video data', videoData);
         setVideoLink(videoData.embedLink);
+        setCurrentVideoId(videoData.videoId);
+        setCurrentSinger(videoData.singer);
     }
 
     const handleScan = () => {
-        fetch('/scan').then(res => res.json()).then(data => console.log(data))
+        // fetch('/scan').then(res => res.json()).then(data => console.log(data))
+ 
+        fetch('/addFolder')
     }
-
-    const timerRef = useRef(null);
 
     const handleAutoScroll = () => {
         const imageList = imageListRef.current;
 
         if(imageList) {
-            let y = 0; // TODO: get current scroll location
+            let y = imageList.scrollTop; // TODO: get current scroll location
             timerRef.current = setInterval(() => imageList.scrollTo(0, y++), 100);
         }
     }
@@ -79,6 +99,47 @@ const ChordsChart = () => {
         if(timerRef.current) {
             clearInterval(timerRef.current);
             timerRef.current = null;
+        }
+    }
+
+    const handleFavourite = async (index) => {
+        const song = songs[index];
+
+        if(song.favourite && song.favourite === true) {
+            song.favourite = false;
+            await fetch(`/unfavourite/${song.folder}/${song.song}`)
+        } else {
+            song.favourite = true;
+            await fetch(`/favourite/${song.folder}/${song.song}`)
+        }
+    }
+
+    const handleRandomPick = async () => {
+        //await fetch('/random');
+        const folderIndex = Math.floor(Math.random() * folderNames.length);
+        setSelectedFolder(folderIndex);
+        const randomFolder = folderNames[folderIndex];
+
+        const data = await fetch(`/songs/${randomFolder}`).then(res => res.json());
+        const songIndex = Math.floor(Math.random() * data.songs.length);
+        // setSelectedSong(songIndex);
+        setSongs(data.songs);
+    
+        const song = data.songs[songIndex];
+
+        handleGetImage(song.song, randomFolder, songIndex);
+    }
+
+    const handleEnterInput = async e => {
+        if(e.key === "Enter") {
+            const singer = e.target.value;
+            const folder = folderNames[selectedFolder]
+            const song = songs[selectedSong];
+
+            const info = await fetch(`/update/${folder}/${song.song}/${singer}`).then(res => res.json());
+            console.log(info);
+            setCurrentSinger(info.singer);
+            setVideoLink(info.embedLink);
         }
     }
 
@@ -109,17 +170,31 @@ const ChordsChart = () => {
                 >
                     StopScroll
                 </Button>
+                <Button 
+                    variant="text"
+                    size="small"
+                    color="navi"
+                    onClick={handleRandomPick}
+                >
+                    Random
+                </Button>
             </div>
             <div className="Container">
                 <div className="Singers_List">
+                     <Button
+                        variant={showFavs ? 'contained' : 'text'}
+                        onClick={handleGetFavs}
+                    >
+                        {"Favourites"}
+                    </Button>
                     {
-                        names.map(
-                            (name, index) => 
+                        folderNames.map(
+                            (folder, index) => 
                                 <Button
-                                    variant={index === selectedSinger ? 'contained' : 'text'}
-                                    onClick={() => handleGetSongs(name, index)}
+                                    variant={index === selectedFolder ? 'contained' : 'text'}
+                                    onClick={() => handleGetSongs(folder, index)}
                                 >
-                                    {name}
+                                    {folder}
                                 </Button>
                         )
                     }
@@ -128,19 +203,37 @@ const ChordsChart = () => {
                     {
                         songs.map(
                             (song, index) => 
-                                <Button
-                                    variant={index === selectedSong ? 'contained' : 'text'}
-                                    color='song'
-                                    onClick={() => handleGetImage(song, index)}
-                                    sx={{
-                                        justifyContent: 'left',
-                                        whiteSpace: 'nowrap',
-                                        textOverflow: 'ellipsis',
-                                        maxWidth: '100%'
-                                    }}
-                                >
-                                    {song}
-                                </Button>
+                                <div className="Song_Button">
+                                    <Button
+                                        variant={index === selectedSong ? 'contained' : 'text'}
+                                        color='song'
+                                        onClick={() => handleGetImage(song.song, song.folder, index)}
+                                        sx={{
+                                            justifyContent: 'left',
+                                            whiteSpace: 'nowrap',
+                                            textOverflow: 'ellipsis',
+                                            maxWidth: '100%'
+                                        }}
+                                    >
+                                        {song.song}
+                                    </Button>
+                                    <div
+                                        onClick={() => handleFavourite(index)}
+                                    >
+                                        {
+                                            song.favourite === true ? 
+                                                <FavoriteIcon
+                                                    fontSize="small"
+                                                    color="secondary"
+                                                /> 
+                                                : 
+                                                <FavoriteBorderIcon 
+                                                    fontSize="small"
+                                                    color="primary"
+                                                />
+                                        }
+                                    </div>
+                                </div>
                         )
                     }
                 </div>
@@ -162,8 +255,17 @@ const ChordsChart = () => {
                             frameborder="0" 
                             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
                             allowfullscreen
+                            sx={{ marginBottom: '10px' }}
                         >
                         </iframe>
+                    }
+                    { 
+                        currentSinger && <TextField 
+                            id="standard-basic" 
+                            label="Change Singer" 
+                            variant="standard"
+                            onKeyDown={handleEnterInput}
+                        />
                     }
                 </div>
             </div>
