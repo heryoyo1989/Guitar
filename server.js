@@ -160,7 +160,7 @@ app.get('/songs/:folder/:song', async(req, res) => {
     res.send({ imageSources })
 })
 
-const uri2 = "mongodb+srv://heryoyo1989:3325NovaTrail@music.xtdnqmc.mongodb.net/Music?retryWrites=true&w=majority"
+const uri2 = "mongodb+srv://heryoyo1989:3325NovaTrail@music.xtdnqmc.mongodb.net/?retryWrites=true&w=majority"
 
 const mongoose = require('mongoose');
 
@@ -173,9 +173,10 @@ async function connectMongo() {
         }
     })
 
-   db = mongoose.connection;
-   const post = await db.collection('Songs').findOne({});
-   console.log(post)
+    const connection = mongoose.connection;
+    const musicDB = connection.useDb('Music');
+    const post = await musicDB.collection('Songs').findOne({});
+    console.log(post)
 }
 
 connectMongo();
@@ -187,15 +188,15 @@ app.get('/youtube/:folder/:song', async(req, res) => {
     const song = req.params.song;
 
     // TODO: Try to use mongoose
-    await client.connect();
-    const musicDB = client.db("Music");
-    const songs = musicDB.collection("Songs");
-    const songObject = await songs.findOne({ folder, song });
+    // await client.connect();
+    // const musicDB = client.db("Music");
+    // const songs = musicDB.collection("Songs");
+    // const songObject = await songs.findOne({ folder, song });
     
-    // mongoose
-    const songsCollection = mongoose.connection.collection('Songs');
-    const songFound = await songsCollection.findOne({ folder, song });
-    console.log("Song Found", songFound);
+    // use mongoose
+    const songsCollection = mongoose.connection.useDb('Music').collection('Songs');
+    const songObject = await songsCollection.findOne({ folder, song });
+    console.log("Song Found", songObject);
 
 
     if(songObject && songObject.videoId) {
