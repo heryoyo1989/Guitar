@@ -81,9 +81,8 @@ const ChordsChart = () => {
     }
 
     const handleScan = () => {
-        // fetch('/scan').then(res => res.json()).then(data => console.log(data))
- 
-        fetch('/addFolder')
+        fetch('/scan').then(res => res.json()).then(data => console.log(data))
+
     }
 
     const handleAutoScroll = () => {

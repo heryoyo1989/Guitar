@@ -62,8 +62,6 @@ const getSongNames = (songs) => {
     return songNames;
 }
 
-// u6CtymiTOglG7jGK
-
 // Tell express to use the webpack-dev-middleware and use the webpack.config.js
 // configuration file as a base.
 app.use(
@@ -77,41 +75,6 @@ app.listen(3000, function () {
   console.log('Example app listening on port 3000!\n');
 });
 
-app.get('/addFolder', async(req, res) => {
-    await client.connect();
-
-    const musicDB = client.db("Music");
-    const songsCollection = musicDB.collection("Songs");
-
-    const items = await songsCollection.find({ folder: 'null' }).toArray();
-    // console.log(items);
-
-    // await songsCollection.deleteMany({ folder: 'null'})
-
-    /* items.forEach(async item => {
-        const videoId = item.videoId;
-
-        await songsCollection.updateOne(
-            { song: item.song, folder: { $ne: 'null' } },
-            { $set: { videoId }}
-        )
-    }) */
-    
-    /* items.forEach(async item => {
-        if(item.folder[1] === '.') {
-            await songsCollection.updateOne(
-                { 
-                    song: item.song, 
-                    folder: item.folder
-                }, 
-                { $set: { singer: "" }}
-            )
-        }
-    }) */
-
-    // await songsCollection.updateMany({ singer: ''}, { $set: { singer: 'null' }});
-})
-
 app.get('/scan', async(req, res) => {
     await client.connect();
 
@@ -120,30 +83,36 @@ app.get('/scan', async(req, res) => {
     const songsCollection = musicDB.collection("Songs");
     const folderNames = fs.readdirSync(PARENT_DIR).filter(f => f !== '.DS_Store');
 
-    // TODO: Delete the node that is not in folderNames
+    folderNames.forEach(async folder => {
+        const singer = folder.indexOf('.') >= 0 ? 'null' : folder;
+        const node = await singers.findOne({ folder });
 
-    folderNames.forEach(async name => {
-        const node = await singers.findOne({ name });
-
-        const dir = `${PARENT_DIR}/${name}`;
+        const dir = `${PARENT_DIR}/${folder}`;
         const songs = fs.readdirSync(dir).filter(f => f !== '.DS_Store');
         const songNames = getSongNames(songs);
 
         if (!node) {
-            await singers.insertOne({ name, songs: songNames });  
+            await singers.insertOne({ singer, songs: songNames });  
         } else {
             await singers.updateOne(
-                { name }, 
+                { singer }, 
                 { $set: { songs: songNames }}
             )
         }
 
         songNames.forEach(async song => {
-            const existSong = await songsCollection.findOne({ song, singer: name })
+            const existSong = await songsCollection.findOne({ song, folder })
 
             if(!existSong) {
-                await songsCollection.insertOne({ song, singer: name, videoId: '' })
+                await songsCollection.insertOne({ singer, song, folder, videoId: '' })
             }
+        })
+
+        songsCollection.deleteMany({ 
+            $and: [
+                { folder: { $eq: folder }}, 
+                { song: { $nin: songNames }}
+            ] 
         })
     })
 })
@@ -161,14 +130,16 @@ app.get('/songs/:folder', async(req, res) => {
     // const dir = `${PARENT_DIR}/${req.params.folder}`;
     // const files = fs.readdirSync(dir).filter(f => f !== '.DS_Store');
     // const songNames = getSongNames(files);
-
     // TODO: Get favorite from DB
-    await client.connect();
-    const musicDB = client.db("Music");
-    const songs = await musicDB.collection("Songs").find({ folder: req.params.folder }).toArray();
-    // console.log("songs", songs);
 
-    res.json({ songs })
+    client
+        .connect()
+        .then(async() => {
+            const musicDB = client.db("Music");
+            const songs = await musicDB.collection("Songs").find({ folder: req.params.folder }).toArray();
+            res.json({ songs: songs.sort((a, b) => a.song.charCodeAt(0)- b.song.charCodeAt(0)) })
+        })
+        .catch(e => console.log("-- Not Connected Error is :", e));
 })
 
 app.get('/songs/:folder/:song', async(req, res) => {
@@ -189,30 +160,56 @@ app.get('/songs/:folder/:song', async(req, res) => {
     res.send({ imageSources })
 })
 
+const uri2 = "mongodb+srv://heryoyo1989:3325NovaTrail@music.xtdnqmc.mongodb.net/Music?retryWrites=true&w=majority"
+
+const mongoose = require('mongoose');
+
+async function connectMongo() {
+    const result = await mongoose.connect(uri2, {
+        serverApi: {
+        version: ServerApiVersion.v1,
+        strict: true,
+        deprecationErrors: true,
+        }
+    })
+
+   db = mongoose.connection;
+   const post = await db.collection('Songs').findOne({});
+   console.log(post)
+}
+
+connectMongo();
+
+
 app.get('/youtube/:folder/:song', async(req, res) => {
     const folder = req.params.folder;
     const singer = folder.indexOf('.') >= 0 ? 'null' : folder;
     const song = req.params.song;
 
+    // TODO: Try to use mongoose
     await client.connect();
     const musicDB = client.db("Music");
     const songs = musicDB.collection("Songs");
     const songObject = await songs.findOne({ folder, song });
+    
+    // mongoose
+    const songsCollection = mongoose.connection.collection('Songs');
+    const songFound = await songsCollection.findOne({ folder, song });
+    console.log("Song Found", songFound);
+
 
     if(songObject && songObject.videoId) {
         const videoId = songObject.videoId;
         const embedLink = `https://www.youtube.com/embed/${videoId}`;
+        client.close();
         res.send({ embedLink, singer, videoId })
     } else {
-        const search_query =`${songObject.singer === 'null'? '歌曲 ' : singer + ' '}${song}`;
+        const search_query =`${songObject && songObject.singer === 'null'? '歌曲 ' : singer + ' '}${song}`;
 
         const response = await youtube.search.list({
             part: "snippet",
             q: search_query,
         });
-
-        // console.log(response);
-        // console.log(response.data.items);
 
         const videos = response.data.items;
             
@@ -223,34 +220,18 @@ app.get('/youtube/:folder/:song', async(req, res) => {
                 await songs.updateOne({ singer, song, folder }, { $set: { videoId }});
             } else {
                 await songs.insertOne({ singer, song, folder, videoId });
-
-                // TODO: insert to the singer list
             }
             const embedLink = `https://www.youtube.com/embed/${videoId}`;
+            client.close();
             res.send({ embedLink, singer, videoId })
         }
     }
-})
-
-app.get('/mongo', async(req, res) => {
-    await client.connect();
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
-
-    const musicDB = client.db("Music");
-    const singers = musicDB.collection("Singers");
-    await singers.insertOne({
-        name: '孙燕姿' + Math.random()
-    });
 })
 
 app.get('/favourite/:folder/:song', async(req, res) => {
     await client.connect();
     const musicDB = client.db('Music');
     const songs = musicDB.collection('Songs');
-
-    // console.log(req.params.folder + " : " + req.params.song);
 
     await songs.updateOne(
         { folder: req.params.folder, song: req.params.song },
@@ -263,12 +244,11 @@ app.get('/unfavourite/:folder/:song', async(req, res) => {
     const musicDB = client.db('Music');
     const songs = musicDB.collection('Songs');
 
-    // console.log("unfavourite", req.params.folder + " : " + req.params.song);
-
     await songs.updateOne(
         { folder: req.params.folder, song: req.params.song },
         { $set: { favourite: false }}
     )
+
 })
 
 app.get('/favourites', async(req, res) => {
@@ -277,9 +257,7 @@ app.get('/favourites', async(req, res) => {
     const songs = musicDB.collection('Songs');
 
     const favourites = await songs.find({ favourite: true }).toArray();
-    // console.log("Favs", favourites);
-
-    res.json({ favourites })
+    res.json({ favourites });
 })
 
 app.get('/update/:folder/:song/:singer', async(req, res) => {
