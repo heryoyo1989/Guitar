@@ -194,10 +194,9 @@ app.get('/youtube/:folder/:song', async(req, res) => {
     // const songObject = await songs.findOne({ folder, song });
     
     // use mongoose
-    const songsCollection = mongoose.connection.useDb('Music').collection('Songs');
-    const songObject = await songsCollection.findOne({ folder, song });
-    console.log("Song Found", songObject);
-
+    const songs = mongoose.connection.useDb('Music').collection('Songs');
+    const songObject = await songs.findOne({ folder, song });
+    // console.log("Song Found", songObject);
 
     if(songObject && songObject.videoId) {
         const videoId = songObject.videoId;
