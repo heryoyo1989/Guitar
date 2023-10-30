@@ -4,6 +4,7 @@ import { createTheme, ThemeProvider } from '@mui/material/styles';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import './Main.css';
+import HeroLogo from "./Logo";
 
 const theme = createTheme({
     palette: {
@@ -145,6 +146,9 @@ const ChordsChart = () => {
     return (
         <ThemeProvider theme={theme}>
             <div className="Navi_Bar"> 
+                <div className="LogoContainer">
+                   <HeroLogo /> 
+                </div>
                 <Button 
                     variant="text"
                     size="small"
@@ -265,6 +269,9 @@ const ChordsChart = () => {
                             variant="standard"
                             onKeyDown={handleEnterInput}
                         />
+                    }
+                    {
+                        
                     }
                 </div>
             </div>

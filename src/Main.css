@@ -3,6 +3,12 @@ body {
     margin: 4px;
 }
 
+.LogoContainer {
+    width: 40px;
+    height: 40px;
+    position: relative;
+}
+
 .Navi_Bar {
     height: 40px;
     background-color: rgb(33, 33, 169);
