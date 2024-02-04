@@ -1,20 +1,24 @@
 const express = require('express');
 const webpack = require('webpack');
-const imageType = require('image-type')
+const fs = require('fs');
 const webpackDevMiddleware = require('webpack-dev-middleware');
-
-// Webpack
+const { MongoClient, ServerApiVersion } = require('mongodb');
+const mongoose = require('mongoose');
+const { google } = require("googleapis");
+const imageType = require('image-type')
 const config = require('./webpack.config.js');
 const compiler = webpack(config);
+const { getRank } = require('./singer_compare.js');
 
-// Express
-const app = express();
-const fs = require('fs');
+// CONSTS
+const PARENT_DIR = '../../../Music/吉他谱';
+const uri = "mongodb+srv://heryoyo1989:3325NovaTrail@music.xtdnqmc.mongodb.net/?retryWrites=true&w=majority"
+const uri2 = "mongodb+srv://heryoyo1989:3325NovaTrail@music.xtdnqmc.mongodb.net/?retryWrites=true&w=majority"
+const google_storage_url="https://firebasestorage.googleapis.com/v0/b/guitar-397101.appspot.com/o";
+const google_storage_url2 = "https://storage.googleapis.com/storage/v1/b/guitar-397101.appspot.com/o"
+// 4/0AfJohXkbCUWEfY95FuYd62rP95JA3nmdx9iIuyl3sSwSJddAXmx7S2JZSkY1aoX4PLyy9A
 
 // Manogo
-const { MongoClient, ServerApiVersion } = require('mongodb');
-const uri = "mongodb+srv://heryoyo1989:3325NovaTrail@music.xtdnqmc.mongodb.net/?retryWrites=true&w=majority"
-
 const client = new MongoClient(uri, {
     serverApi: {
       version: ServerApiVersion.v1,
@@ -24,13 +28,40 @@ const client = new MongoClient(uri, {
 });
 
 // Youtube Search
-const { google } = require("googleapis");
 const youtube = google.youtube({
   version: "v3",
-  auth: "AIzaSyAXxCWSOi1NYnlAO59Wn34OE9BFhm-5yqc",
+  auth: "AIzaSyDLD_y8manfmNf7bvQO4wAjzg5eWUZCj3k",
+  //auth: "AIzaSyAXxCWSOi1NYnlAO59Wn34OE9BFhm-5yqc",
 });
 
-const PARENT_DIR = '../../../Music/吉他谱';
+async function connectMongo() {
+    const result = await mongoose.connect(uri2, {
+        serverApi: {
+        version: ServerApiVersion.v1,
+        strict: true,
+        deprecationErrors: true,
+        }
+    })
+}
+
+connectMongo();
+
+// Express
+const app = express();
+
+// Tell express to use the webpack-dev-middleware and use the webpack.config.js
+// configuration file as a base.
+app.use(
+  webpackDevMiddleware(compiler, {
+    publicPath: config.output.publicPath,
+  })
+);
+
+// Serve the files on port 3000.
+app.listen(3000, function () {
+  console.log('Example app listening on port 3000!\n');
+});
+
 
 const getSongNames = (songs) => {
     const songNames = [];
@@ -62,40 +93,33 @@ const getSongNames = (songs) => {
     return songNames;
 }
 
-// Tell express to use the webpack-dev-middleware and use the webpack.config.js
-// configuration file as a base.
-app.use(
-  webpackDevMiddleware(compiler, {
-    publicPath: config.output.publicPath,
-  })
-);
-
-// Serve the files on port 3000.
-app.listen(3000, function () {
-  console.log('Example app listening on port 3000!\n');
-});
-
 app.get('/scan', async(req, res) => {
     await client.connect();
 
     const musicDB = client.db("Music");
-    const singers = musicDB.collection("Singers");
+    const folders = musicDB.collection("Folders");
+    const singers = musicDB.collection('Singers');
     const songsCollection = musicDB.collection("Songs");
     const folderNames = fs.readdirSync(PARENT_DIR).filter(f => f !== '.DS_Store');
 
     folderNames.forEach(async folder => {
-        const singer = folder.indexOf('.') >= 0 ? 'null' : folder;
-        const node = await singers.findOne({ folder });
-
+        const singer = folder.indexOf('- ') >= 0 ? 'null' : folder;
+        const node = await folders.findOne({ folder });
+        const singer_node = await singers.findOne({ singer });        
+       
         const dir = `${PARENT_DIR}/${folder}`;
         const songs = fs.readdirSync(dir).filter(f => f !== '.DS_Store');
         const songNames = getSongNames(songs);
 
+        if(singer !== 'null' && !singer_node) {
+            await singers.insertOne({ singer, style: '', songs: songNames})
+        }
+
         if (!node) {
-            await singers.insertOne({ singer, songs: songNames });  
+            await folders.insertOne({ folder, singer, songs: songNames });  
         } else {
-            await singers.updateOne(
-                { singer }, 
+            await folders.updateOne(
+                { folder, singer }, 
                 { $set: { songs: songNames }}
             )
         }
@@ -115,14 +139,62 @@ app.get('/scan', async(req, res) => {
             ] 
         })
     })
+
+    async function listFiles() {
+        // Lists files in the bucket
+        const [files] = await storage.bucket("guitar-397101.appspot.com").getFiles();
+
+        console.log('Files:');
+        files.forEach(file => {
+            console.log(file.name);
+        });
+    }
+
+    listFiles().catch(console.error);
 })
 
-app.get('/singers', async(req, res) => {
+app.get('/folders', async(req, res) => {
+    await client.connect();
+    const musicDB = client.db('Music');
+    const foldersDB = musicDB.collection('Folders');
+    const folders = await foldersDB.find({}).toArray();    
+    const topSet = new Set(folders.filter(f => f.atTop).map(f => f.folder)); 
     const folderNames = fs.readdirSync(PARENT_DIR);
 
+    const result = folderNames
+        .filter(f => f !== '.DS_Store')
+        .sort((a, b) => getRank(a, topSet) - getRank(b, topSet))
+        .map(name => {
+            return {
+                name,
+                atTop: topSet.has(name),
+                type: getRank(name, topSet)
+            }
+        });
+    
     res.json({ 
-        singers: folderNames.filter(f => f !== '.DS_Store'),
+        folders: result,
         dir: PARENT_DIR 
+    })
+})
+
+app.get('/put_folder_to_top/:folder', async(req, res) => {
+    const folder = req.params.folder;
+
+    await client.connect();
+    const musicDB = client.db('Music');
+    const foldersDB = musicDB.collection('Folders');
+
+    const folderInfo = await foldersDB.findOne({ folder });
+    const isAtTop = folderInfo.atTop;
+    await foldersDB.updateOne(
+        { folder }, 
+        { $set: { atTop: isAtTop ? false : true }}
+    )
+
+    res.json({
+        folder,
+        atTop: isAtTop ? false : true
     })
 })
 
@@ -160,31 +232,9 @@ app.get('/songs/:folder/:song', async(req, res) => {
     res.send({ imageSources })
 })
 
-const uri2 = "mongodb+srv://heryoyo1989:3325NovaTrail@music.xtdnqmc.mongodb.net/?retryWrites=true&w=majority"
-
-const mongoose = require('mongoose');
-
-async function connectMongo() {
-    const result = await mongoose.connect(uri2, {
-        serverApi: {
-        version: ServerApiVersion.v1,
-        strict: true,
-        deprecationErrors: true,
-        }
-    })
-
-    const connection = mongoose.connection;
-    const musicDB = connection.useDb('Music');
-    const post = await musicDB.collection('Songs').findOne({});
-    console.log(post)
-}
-
-connectMongo();
-
-
 app.get('/youtube/:folder/:song', async(req, res) => {
     const folder = req.params.folder;
-    const singer = folder.indexOf('.') >= 0 ? 'null' : folder;
+    const singerFolder = folder.indexOf('-') >= 0 ? 'null' : folder;
     const song = req.params.song;
 
     // TODO: Try to use mongoose
@@ -195,17 +245,27 @@ app.get('/youtube/:folder/:song', async(req, res) => {
     
     // use mongoose
     const songs = mongoose.connection.useDb('Music').collection('Songs');
+    const singers = mongoose.connection.useDb('Music').collection('Singers');
     const songObject = await songs.findOne({ folder, song });
-    // console.log("Song Found", songObject);
+    const singer = songObject.singer;
+    const song_style = songObject.style || '';
+    
+    let singer_style = '';
+
+    if(singer) {
+        const singerObject = await singers.findOne({ singer });
+        singer_style = (singerObject && singerObject.style) || '';
+    }
 
     if(songObject && songObject.videoId) {
         const videoId = songObject.videoId;
         const embedLink = `https://www.youtube.com/embed/${videoId}`;
         client.close();
-        res.send({ embedLink, singer, videoId })
+        res.send({ embedLink, singer, videoId, song_style, singer_style })
     } else {
-        const search_query =`${songObject && songObject.singer === 'null'? '歌曲 ' : singer + ' '}${song}`;
+        const search_query =`${songObject && singer === 'null'? '歌曲 ' : singer + ' '}${song}`;
 
+        // TODO: error check?
         const response = await youtube.search.list({
             part: "snippet",
             q: search_query,
@@ -223,7 +283,7 @@ app.get('/youtube/:folder/:song', async(req, res) => {
             }
             const embedLink = `https://www.youtube.com/embed/${videoId}`;
             client.close();
-            res.send({ embedLink, singer, videoId })
+            res.send({ embedLink, singer, videoId, song_style, singer_style })
         }
     }
 })
@@ -237,6 +297,11 @@ app.get('/favourite/:folder/:song', async(req, res) => {
         { folder: req.params.folder, song: req.params.song },
         { $set: { favourite: true }}
     )
+
+    res.json({ 
+        song: req.params.song, 
+        folder: req.params.folder
+    })
 })
 
 app.get('/unfavourite/:folder/:song', async(req, res) => {
@@ -249,6 +314,10 @@ app.get('/unfavourite/:folder/:song', async(req, res) => {
         { $set: { favourite: false }}
     )
 
+    res.json({ 
+        song: req.params.song, 
+        folder: req.params.folder
+    })
 })
 
 app.get('/favourites', async(req, res) => {
@@ -265,17 +334,13 @@ app.get('/update/:folder/:song/:singer', async(req, res) => {
     await client.connect();
     const musicDB = client.db('Music');
     const songs = musicDB.collection('Songs');
-
     const folder = req.params.folder;
     const song = req.params.song;
     const singer = req.params.singer;
 
-    console.log(req.params);
     await songs.updateOne({ folder, song }, { $set: { singer }});
-    // get new videoId
 
     const search_query =`${singer} ${song}`;
-
     const response = await youtube.search.list({
         part: "snippet",
         q: search_query,
@@ -292,6 +357,35 @@ app.get('/update/:folder/:song/:singer', async(req, res) => {
 
         res.json({ singer, videoId, embedLink })
     }
+})
+
+app.get('/update_style/:singer/:song/:style', async(req, res) => {
+    await client.connect();
+    const musicDB = client.db('Music');
+    const songs = musicDB.collection('Songs');
+    const singers = musicDB.collection('Singers');
+
+    const song = req.params.song;
+    const singer = req.params.singer;
+    const style = req.params.style;
+
+    await songs.updateOne({ singer, song }, { $set: { style }});
+    await singers.updateOne({ singer }, { $set: { style }});
+
+    res.json({ singer, song, style })
+})
+
+app.get('/update_song_style/:song/:style', async(req, res) => {
+    await client.connect();
+    const musicDB = client.db('Music');
+    const songs = musicDB.collection('Songs');
+
+    const song = req.params.song;
+    const style = req.params.style;
+
+    await songs.updateOne({ song }, { $set: { style }});
+
+    res.json({ song, style})
 })
 
 app.get('/random', async(req, res) => {

@@ -11,7 +11,7 @@ body {
 
 .Navi_Bar {
     height: 40px;
-    background-color: rgb(33, 33, 169);
+    background-color: rgb(11, 11, 123);
     color: aliceblue;
     padding: 4px;
     display: flex;
@@ -44,7 +44,7 @@ body {
     max-height: 100%;
     overflow: hidden; 
     overflow-y: scroll;
-    min-width: 120px;
+    min-width: 200px;
 }
 
 .Songs_List {
@@ -89,4 +89,22 @@ body {
     margin-left: 5px;
     display: flex;
     flex-direction: column;
+}
+
+.Form_Item {
+    margin-top: 10px;
+}
+
+.Song_Info {
+    max-width: 300px;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+}
+
+.Singer_Info {
+    max-width: 300px;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
 }
